@@ -1,0 +1,290 @@
+name: Build and Push RHEL/UBI Container Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'images-rhel/**/Dockerfile'
+      - '.github/workflows/build-rhel-images.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'images-rhel/**/Dockerfile'
+      - '.github/workflows/build-rhel-images.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: quay.io
+  REGISTRY_ORG: rcook
+
+jobs:
+  # ---------------------------------------------------------------
+  # Stage 1: Build the Slurm base image (all daemon images depend on it)
+  # ---------------------------------------------------------------
+  build-slurm-base:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Log in to registry.redhat.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: registry.redhat.io
+          username: ${{ secrets.REDHAT_REGISTRY_USERNAME }}
+          password: ${{ secrets.REDHAT_REGISTRY_PASSWORD }}
+
+      - name: Build slurm-base
+        run: |
+          podman build \
+            -f images-rhel/slurm-base/Dockerfile \
+            -t quay.io/rcook/slurm-base:latest \
+            .
+
+      - name: Verify slurm-base
+        run: |
+          podman run --rm quay.io/rcook/slurm-base:latest \
+            /usr/sbin/slurmctld --version
+
+      - name: Push slurm-base
+        if: github.event_name != 'pull_request'
+        run: podman push quay.io/rcook/slurm-base:latest
+
+      - name: Save slurm-base image
+        run: podman save -o /tmp/slurm-base.tar quay.io/rcook/slurm-base:latest
+
+      - name: Upload slurm-base artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slurm-base-image
+          path: /tmp/slurm-base.tar
+          retention-days: 1
+
+  # ---------------------------------------------------------------
+  # Stage 2: Build Slurm daemon images (parallel, depend on base)
+  # ---------------------------------------------------------------
+  build-slurmctld:
+    needs: build-slurm-base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Download slurm-base image
+        uses: actions/download-artifact@v4
+        with:
+          name: slurm-base-image
+          path: /tmp
+
+      - name: Load and tag base image
+        run: |
+          podman load -i /tmp/slurm-base.tar
+          podman tag quay.io/rcook/slurm-base:latest slurm-base:latest
+
+      - name: Build slurmctld
+        run: |
+          podman build \
+            -f images-rhel/slurmctld/Dockerfile \
+            -t quay.io/rcook/slurmctld:latest \
+            .
+
+      - name: Verify slurmctld
+        run: |
+          podman run --rm quay.io/rcook/slurmctld:latest \
+            /usr/sbin/slurmctld --version
+
+      - name: Push slurmctld
+        if: github.event_name != 'pull_request'
+        run: podman push quay.io/rcook/slurmctld:latest
+
+  build-slurmd:
+    needs: build-slurm-base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Log in to registry.redhat.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: registry.redhat.io
+          username: ${{ secrets.REDHAT_REGISTRY_USERNAME }}
+          password: ${{ secrets.REDHAT_REGISTRY_PASSWORD }}
+
+      - name: Download slurm-base image
+        uses: actions/download-artifact@v4
+        with:
+          name: slurm-base-image
+          path: /tmp
+
+      - name: Load and tag base image
+        run: |
+          podman load -i /tmp/slurm-base.tar
+          podman tag quay.io/rcook/slurm-base:latest slurm-base:latest
+
+      - name: Build slurmd
+        run: |
+          podman build \
+            -f images-rhel/slurmd/Dockerfile \
+            -t quay.io/rcook/slurmd:latest \
+            .
+
+      - name: Verify slurmd
+        run: |
+          podman run --rm quay.io/rcook/slurmd:latest \
+            /usr/sbin/slurmd --version
+
+      - name: Push slurmd
+        if: github.event_name != 'pull_request'
+        run: podman push quay.io/rcook/slurmd:latest
+
+  build-slurmdbd:
+    needs: build-slurm-base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Download slurm-base image
+        uses: actions/download-artifact@v4
+        with:
+          name: slurm-base-image
+          path: /tmp
+
+      - name: Load and tag base image
+        run: |
+          podman load -i /tmp/slurm-base.tar
+          podman tag quay.io/rcook/slurm-base:latest slurm-base:latest
+
+      - name: Build slurmdbd
+        run: |
+          podman build \
+            -f images-rhel/slurmdbd/Dockerfile \
+            -t quay.io/rcook/slurmdbd:latest \
+            .
+
+      - name: Push slurmdbd
+        if: github.event_name != 'pull_request'
+        run: podman push quay.io/rcook/slurmdbd:latest
+
+  build-slurm-login:
+    needs: build-slurm-base
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Download slurm-base image
+        uses: actions/download-artifact@v4
+        with:
+          name: slurm-base-image
+          path: /tmp
+
+      - name: Load and tag base image
+        run: |
+          podman load -i /tmp/slurm-base.tar
+          podman tag quay.io/rcook/slurm-base:latest slurm-base:latest
+
+      - name: Build slurm-login
+        run: |
+          podman build \
+            -f images-rhel/slurm-login/Dockerfile \
+            -t quay.io/rcook/slurm-login:latest \
+            .
+
+      - name: Push slurm-login
+        if: github.event_name != 'pull_request'
+        run: podman push quay.io/rcook/slurm-login:latest
+
+  # ---------------------------------------------------------------
+  # Stage 2: Build GPU images (parallel, independent of Slurm base)
+  # ---------------------------------------------------------------
+  build-gpu-job:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Log in to registry.redhat.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: registry.redhat.io
+          username: ${{ secrets.REDHAT_REGISTRY_USERNAME }}
+          password: ${{ secrets.REDHAT_REGISTRY_PASSWORD }}
+
+      - name: Build gpu-job
+        run: |
+          podman build \
+            -f images-rhel/gpu-job/Dockerfile \
+            -t quay.io/rcook/gpu-job:latest \
+            .
+
+      - name: Push gpu-job
+        if: github.event_name != 'pull_request'
+        run: podman push quay.io/rcook/gpu-job:latest
+
+  build-vllm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+
+      - name: Log in to registry.redhat.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: registry.redhat.io
+          username: ${{ secrets.REDHAT_REGISTRY_USERNAME }}
+          password: ${{ secrets.REDHAT_REGISTRY_PASSWORD }}
+
+      - name: Build vllm
+        run: |
+          podman build \
+            -f images-rhel/vllm/Dockerfile \
+            -t quay.io/rcook/vllm-slurm:latest \
+            .
+
+      - name: Push vllm
+        if: github.event_name != 'pull_request'
+        run: podman push quay.io/rcook/vllm-slurm:latest

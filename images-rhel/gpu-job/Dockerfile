@@ -7,6 +7,8 @@ FROM registry.redhat.io/rhai/base-image-cuda-12.9-rhel9:3.3
 LABEL org.opencontainers.image.title="gpu-job" \
       org.opencontainers.image.description="RHEL 9 + CUDA 12.9 base for GPU job containers"
 
+USER root
+
 # Install Python and numpy; PyTorch/vLLM can be layered on top as needed
 RUN dnf install -y \
         python3 \

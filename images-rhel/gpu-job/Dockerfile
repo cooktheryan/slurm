@@ -9,16 +9,13 @@ LABEL org.opencontainers.image.title="gpu-job" \
 
 USER root
 
-# Install Python and numpy; PyTorch/vLLM can be layered on top as needed
-RUN dnf install -y \
-        python3 \
-        python3-pip \
-    && dnf clean all \
-    && pip3 install --no-cache-dir numpy
+# Python 3 and pip are included in the base image; install numpy
+RUN pip3 install --no-cache-dir numpy || \
+    (python3 -m ensurepip && pip3 install --no-cache-dir numpy)
 
 # Create non-root user for OpenShift compatibility
-RUN groupadd -g 1001 jobuser \
-    && useradd -u 1001 -g jobuser -s /bin/bash -d /home/jobuser -m jobuser
+RUN groupadd -g 1001 jobuser 2>/dev/null || true \
+    && useradd -u 1001 -g jobuser -s /bin/bash -d /home/jobuser -m jobuser 2>/dev/null || true
 
 ENV NVIDIA_VISIBLE_DEVICES="all" \
     NVIDIA_DRIVER_CAPABILITIES="compute,utility"

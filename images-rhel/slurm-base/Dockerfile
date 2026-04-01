@@ -5,17 +5,26 @@
 ARG BASE_IMAGE=registry.access.redhat.com/ubi9:latest
 
 # ---------------------------------------------------------------------------
-# Stage 1 — build (CentOS Stream 9 for full -devel package availability)
+# Stage 1 — build (UBI 9 + activation key to unlock full RHEL repos)
+# Pass --build-arg RHEL_ORG=<org> --build-arg RHEL_ACTIVATION_KEY=<key>
 # ---------------------------------------------------------------------------
-FROM quay.io/centos/centos:stream9 AS build
+FROM ${BASE_IMAGE} AS build
 
 ARG SLURM_VERSION=25.11.4
+ARG RHEL_ORG
+ARG RHEL_ACTIVATION_KEY
 
 LABEL stage=build
 
-# Enable CRB + EPEL for build dependencies
-RUN dnf install -y epel-release \
-    && /usr/bin/crb enable \
+# Register with Red Hat, enable CRB, add EPEL, install build deps
+RUN rm -rf /etc/rhsm-host \
+    && subscription-manager register \
+        --org="${RHEL_ORG}" \
+        --activationkey="${RHEL_ACTIVATION_KEY}" \
+    && subscription-manager repos \
+        --enable codeready-builder-for-rhel-9-x86_64-rpms \
+    && dnf install -y \
+        https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
     && dnf install -y \
         gcc gcc-c++ make wget bzip2 \
         munge-devel \
@@ -54,7 +63,8 @@ RUN ./configure \
 
 # Install runtime packages that are not available in UBI repos
 RUN dnf install -y munge hwloc numactl lua mariadb-connector-c tini \
-    && dnf clean all
+    && dnf clean all \
+    && subscription-manager unregister || true
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime

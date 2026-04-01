@@ -43,9 +43,14 @@ jobs:
       - name: Build slurm-base
         run: |
           podman build \
+            --build-arg RHEL_ORG="$RHEL_ORG" \
+            --build-arg RHEL_ACTIVATION_KEY="$RHEL_ACTIVATION_KEY" \
             -f images-rhel/slurm-base/Dockerfile \
             -t quay.io/rcook/slurm-base:latest \
             .
+        env:
+          RHEL_ORG: ${{ secrets.RHEL_ORG }}
+          RHEL_ACTIVATION_KEY: ${{ secrets.RHEL_ACTIVATION_KEY }}
 
       - name: Verify slurm-base
         run: |
